@@ -4,7 +4,6 @@ import { createServer } from "node:http";
 const PORT = Number(process.env.PORT || 8080);
 const API_KEY = process.env.GEMINI_API_KEY || "";
 
-// Fast model first, reliable fallback after it
 const MODELS = [
   "gemini-3.5-flash-lite",
   "gemini-3.6-flash",
@@ -24,16 +23,9 @@ Your name is RC Jarvis.
 `;
 
 const server = createServer(async (req, res) => {
-
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader(
-    "Access-Control-Allow-Headers",
-    "Content-Type"
-  );
-  res.setHeader(
-    "Access-Control-Allow-Methods",
-    "GET, POST, OPTIONS"
-  );
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   res.setHeader("Content-Type", "application/json; charset=UTF-8");
 
   if (req.method === "OPTIONS") {
@@ -41,9 +33,27 @@ const server = createServer(async (req, res) => {
     return res.end();
   }
 
+  // Normalize URL path
+  const pathname = new URL(
+    req.url || "/",
+    "http://localhost"
+  ).pathname.replace(/\/+$/, "") || "/";
+
+  console.log("Incoming request:", req.method, pathname);
+
+  // Root route
+  if (pathname === "/" && req.method === "GET") {
+    res.writeHead(200);
+    return res.end(JSON.stringify({
+      status: "online",
+      assistant: "RC Jarvis",
+      message: "RC Jarvis backend is running"
+    }));
+  }
+
   // Health check
   if (
-    req.url === "/api/jarvis/health" &&
+    pathname === "/api/jarvis/health" &&
     req.method === "GET"
   ) {
     res.writeHead(200);
@@ -55,10 +65,9 @@ const server = createServer(async (req, res) => {
 
   // AI request
   if (
-    req.url === "/api/jarvis/ask" &&
+    pathname === "/api/jarvis/ask" &&
     req.method === "POST"
   ) {
-
     if (!API_KEY) {
       res.writeHead(500);
       return res.end(JSON.stringify({
@@ -67,7 +76,6 @@ const server = createServer(async (req, res) => {
     }
 
     try {
-
       let body = "";
 
       for await (const chunk of req) {
@@ -94,17 +102,14 @@ const server = createServer(async (req, res) => {
       let lastError = "No model available";
 
       for (const model of MODELS) {
-
         let controller: AbortController | null = null;
         let timeout: ReturnType<typeof setTimeout> | null = null;
 
         try {
-
           console.log("Trying Gemini model:", model);
 
           controller = new AbortController();
 
-          // Maximum 18 seconds per model
           timeout = setTimeout(() => {
             controller?.abort();
           }, 18000);
@@ -113,34 +118,27 @@ const server = createServer(async (req, res) => {
             `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${API_KEY}`,
             {
               method: "POST",
-
               headers: {
                 "Content-Type": "application/json",
                 "Accept": "application/json"
               },
-
               signal: controller.signal,
-
               body: JSON.stringify({
-
                 systemInstruction: {
                   parts: [{
                     text: SYSTEM_PROMPT
                   }]
                 },
-
                 contents: [{
                   role: "user",
                   parts: [{
                     text: question
                   }]
                 }],
-
                 generationConfig: {
                   temperature: 0.6,
                   maxOutputTokens: 512
                 }
-
               })
             }
           );
@@ -158,7 +156,6 @@ const server = createServer(async (req, res) => {
           }
 
           if (!response.ok) {
-
             lastError = JSON.stringify(result);
 
             console.error(
@@ -168,7 +165,6 @@ const server = createServer(async (req, res) => {
               result
             );
 
-            // Try fallback only for temporary errors
             if (
               response.status === 429 ||
               response.status === 500 ||
@@ -200,14 +196,12 @@ const server = createServer(async (req, res) => {
           console.log("Reply generated using:", model);
 
           res.writeHead(200);
-
           return res.end(JSON.stringify({
             answer: answer,
             model: model
           }));
 
         } catch (error) {
-
           lastError = String(error);
 
           console.error(
@@ -217,32 +211,24 @@ const server = createServer(async (req, res) => {
           );
 
         } finally {
-
           if (timeout) {
             clearTimeout(timeout);
           }
-
         }
       }
 
-      console.error(
-        "All Gemini models failed:",
-        lastError
-      );
+      console.error("All Gemini models failed:", lastError);
 
       res.writeHead(503);
-
       return res.end(JSON.stringify({
         error: "All Gemini models are temporarily unavailable",
         details: lastError
       }));
 
     } catch (error) {
-
       console.error("Server error:", error);
 
       res.writeHead(500);
-
       return res.end(JSON.stringify({
         error: "Server error",
         details: String(error)
@@ -251,11 +237,11 @@ const server = createServer(async (req, res) => {
   }
 
   res.writeHead(404);
-
-  res.end(JSON.stringify({
-    error: "Route not found"
+  return res.end(JSON.stringify({
+    error: "Route not found",
+    path: pathname,
+    method: req.method
   }));
-
 });
 
 server.listen(PORT, "0.0.0.0", () => {
